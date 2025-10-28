@@ -1,64 +1,68 @@
-import {StaticTable} from '../../../utils/tableDimensions/staticTable/staticTable';
-import {SizerMoveLimits, SelectedColumnSizerT} from '../../../types/columnSizer';
-import {TableDimensions} from '../../../types/tableDimensions';
+import { StaticTable } from "../../../utils/tableDimensions/staticTable/staticTable";
+import { SizerMoveLimits, SelectedColumnSizerT } from "../../../types/columnSizer";
+import { TableDimensions } from "../../../types/tableDimensions";
 
-// Try not use offsetWidth for cells as it rounds the width number up, whereas some columns can have widths with
-// decimal places, thus this would cause a column width to be changed when no movement was made or cause the new
-// width to not be correct. Thus, use Number.parseFloat instead to get the fully correct column width.
+// Avoid using offsetWidth for cells as it rounds widths up, losing precision.
+// Use Number.parseFloat instead to preserve decimal widths and prevent jitter.
 export class ColumnSizerSetWidth {
   private static getWidthDelta(mouseMoveOffset: number, moveLimits: SizerMoveLimits) {
-    if (mouseMoveOffset < moveLimits.left) {
-      return moveLimits.left;
-    } else if (mouseMoveOffset > moveLimits.right) {
-      return moveLimits.right;
-    }
+    if (mouseMoveOffset < moveLimits.left) return moveLimits.left;
+    if (mouseMoveOffset > moveLimits.right) return moveLimits.right;
     return mouseMoveOffset;
   }
 
-  private static getNewColumnWidth(selectedColumnSizer: SelectedColumnSizerT, columnElement: HTMLElement) {
-    const {moveLimits, mouseMoveOffset, initialOffset} = selectedColumnSizer;
+  private static getNewColumnWidth(selectedColumnSizer: SelectedColumnSizerT, columnElement: HTMLElement, isRTL: boolean) {
+    const { moveLimits, mouseMoveOffset, initialOffset } = selectedColumnSizer;
     const delta = ColumnSizerSetWidth.getWidthDelta(mouseMoveOffset, moveLimits) - initialOffset;
-    return Math.max(0, Number.parseFloat(columnElement.style.width) + delta);
+    const baseWidth = Number.parseFloat(columnElement.style.width) || columnElement.offsetWidth;
+    // reverse direction if RTL
+    return Math.max(0, baseWidth + (isRTL ? -delta : delta));
   }
 
   private static setColumnWidth(selectedColumnSizer: SelectedColumnSizerT, headerCell: HTMLElement) {
-    const newWidth = ColumnSizerSetWidth.getNewColumnWidth(selectedColumnSizer, headerCell);
+    const isRTL = getComputedStyle(selectedColumnSizer.tableElement as HTMLElement).direction === "rtl";
+    const newWidth = ColumnSizerSetWidth.getNewColumnWidth(selectedColumnSizer, headerCell, isRTL);
     headerCell.style.width = `${newWidth}px`;
   }
 
-  // when the user moves the sizer to the start/end of a column in an attempt to completely crush the column,
-  // the dom will not allow that and will leave enough space for the column to display its text,
-  // the problem is that the widths will be set incorrectly and need to be corrected
-  // prettier-ignore
-  private static correctWidths(selectedColumnSizer: SelectedColumnSizerT, crushedElement: HTMLElement,
-      sideElement: HTMLElement, initialWidthsTotal: number) {
-    // Using Number.parseFloat as Number.parseInt rounds with ceil
+  // Fix column width mismatch when user crushes a column to minimum allowed
+  private static correctWidths(selectedColumnSizer: SelectedColumnSizerT, crushedElement: HTMLElement, sideElement: HTMLElement, initialWidthsTotal: number) {
     if (crushedElement.offsetWidth !== Math.round(Number.parseFloat(crushedElement.style.width))) {
-      const leftValue = `${crushedElement.offsetWidth}px`;
-      const rightValue = `${initialWidthsTotal - crushedElement.offsetWidth}px`;
-      crushedElement.style.width = leftValue;
-      sideElement.style.width = rightValue;
+      const crushedWidth = crushedElement.offsetWidth;
+      const sideWidth = initialWidthsTotal - crushedWidth;
+      crushedElement.style.width = `${crushedWidth}px`;
+      sideElement.style.width = `${sideWidth}px`;
       selectedColumnSizer.wasAutoresized = true;
-      setTimeout(() => selectedColumnSizer.wasAutoresized = false);
+      setTimeout(() => (selectedColumnSizer.wasAutoresized = false));
     }
   }
 
-  // prettier-ignore
-  private static setWidths(selectedColumnSizer: SelectedColumnSizerT, leftHeader: HTMLElement,
-      rightHeader: HTMLElement, initialWidthsTotal: number) {
-    const newLeftWidth = ColumnSizerSetWidth.getNewColumnWidth(selectedColumnSizer, leftHeader);
-    const newRightWidth = Math.max(0, initialWidthsTotal - newLeftWidth);
-    leftHeader.style.width = `${newLeftWidth}px`;
-    rightHeader.style.width = `${newRightWidth}px`;
+  // Set both sides' widths (handles RTL and LTR)
+  private static setWidths(selectedColumnSizer: SelectedColumnSizerT, leftHeader: HTMLElement, rightHeader: HTMLElement, initialWidthsTotal: number) {
+    const isRTL = getComputedStyle(selectedColumnSizer.tableElement as HTMLElement).direction === "rtl";
+
+    if (isRTL) {
+      // mirror logic for RTL
+      const newRightWidth = ColumnSizerSetWidth.getNewColumnWidth(selectedColumnSizer, rightHeader, isRTL);
+      const newLeftWidth = Math.max(0, initialWidthsTotal - newRightWidth);
+      rightHeader.style.width = `${newRightWidth}px`;
+      leftHeader.style.width = `${newLeftWidth}px`;
+    } else {
+      const newLeftWidth = ColumnSizerSetWidth.getNewColumnWidth(selectedColumnSizer, leftHeader, isRTL);
+      const newRightWidth = Math.max(0, initialWidthsTotal - newLeftWidth);
+      leftHeader.style.width = `${newLeftWidth}px`;
+      rightHeader.style.width = `${newRightWidth}px`;
+    }
   }
 
-  // prettier-ignore
-  private static setColumnsWidths(selectedColumnSizer: SelectedColumnSizerT, leftHeader: HTMLElement,
-      rightHeader: HTMLElement) {
-    const leftWidth = Number.parseFloat(leftHeader.style.width);
-    const rightWidth = Number.parseFloat(rightHeader.style.width);
+  // Handle dynamic width updates for both columns
+  private static setColumnsWidths(selectedColumnSizer: SelectedColumnSizerT, leftHeader: HTMLElement, rightHeader: HTMLElement) {
+    const leftWidth = Number.parseFloat(leftHeader.style.width) || leftHeader.offsetWidth;
+    const rightWidth = Number.parseFloat(rightHeader.style.width) || rightHeader.offsetWidth;
     const initialWidthsTotal = leftWidth + rightWidth;
+
     ColumnSizerSetWidth.setWidths(selectedColumnSizer, leftHeader, rightHeader, initialWidthsTotal);
+
     if (rightWidth > leftWidth) {
       ColumnSizerSetWidth.correctWidths(selectedColumnSizer, leftHeader, rightHeader, initialWidthsTotal);
     } else {
@@ -66,16 +70,16 @@ export class ColumnSizerSetWidth {
     }
   }
 
-  // left or right header in respect to the position of the sizer element
-  // prettier-ignore
-  public static set(selectedColumnSizer: SelectedColumnSizerT, tableElement: HTMLElement,
-      tableDimensions: TableDimensions, leftHeader: HTMLElement, rightHeader?: HTMLElement) {
+  // Main public entry
+  public static set(selectedColumnSizer: SelectedColumnSizerT, tableElement: HTMLElement, tableDimensions: TableDimensions, leftHeader: HTMLElement, rightHeader?: HTMLElement) {
     if (rightHeader && StaticTable.isStaticTableWidth(tableElement, tableDimensions)) {
-      // when the table width is static - control the width of two columns
+      // When table width is static, control both columns
       ColumnSizerSetWidth.setColumnsWidths(selectedColumnSizer, leftHeader, rightHeader);
     } else {
+      // Otherwise, control a single column
       ColumnSizerSetWidth.setColumnWidth(selectedColumnSizer, leftHeader);
     }
+
     setTimeout(() => selectedColumnSizer.fireColumnsUpdate());
   }
 }
