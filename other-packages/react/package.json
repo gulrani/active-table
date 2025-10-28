@@ -1,10 +1,11 @@
 {
-  "name": "active-table-react",
-  "version": "1.1.7",
+  "name": "@gulrani/active-table-react-rtl",
+  "version": "1.0.0",
   "description": "Active Table wrapper for React",
   "main": "./dist/activeTable.js",
   "module": "./dist/activeTable.js",
   "type": "module",
+  "private": false,
   "scripts": {
     "build": "tsc"
   },
